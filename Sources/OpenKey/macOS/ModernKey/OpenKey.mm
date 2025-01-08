@@ -87,6 +87,9 @@ extern "C" {
     
     NSString* _frontMostApp = @"UnknownApp";
     
+    static NSString *lastFocusedAppBundleId = nil;
+    static pid_t lastFocusedAppPid = -1;
+
     void OpenKeyInit() {
         //load saved data
         vFreeMark = 0;//(int)[[NSUserDefaults standardUserDefaults] integerForKey:@"FreeMark"];
@@ -573,10 +576,6 @@ extern "C" {
                                          fallbackKeyCode);
     }
 
-    /**
-     * MAIN HOOK entry, very important function.
-     * MAIN Callback.
-     */
     NSString* getFocusedAppBundleId() {
         AXUIElementRef systemWide = AXUIElementCreateSystemWide();
         AXUIElementRef focusedApp = NULL;
@@ -585,17 +584,28 @@ extern "C" {
         if (result == kAXErrorSuccess && focusedApp) {
             pid_t pid = 0;
             AXUIElementGetPid(focusedApp, &pid);
+            
+            // Check if the focused app has changed
+            if (pid != lastFocusedAppPid) {
             NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+                lastFocusedAppBundleId = app.bundleIdentifier;
+                lastFocusedAppPid = pid;
+            }
+            
             CFRelease(focusedApp);
             CFRelease(systemWide);
-            return app.bundleIdentifier;
+            return lastFocusedAppBundleId;
         }
         
         if (focusedApp) CFRelease(focusedApp);
         CFRelease(systemWide);
         return nil;
     }
-    
+
+    /**
+     * MAIN HOOK entry, very important function.
+     * MAIN Callback.
+     */    
     CGEventRef OpenKeyCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon) {
         //dont handle my event
         if (CGEventGetIntegerValueField(event, kCGEventSourceStateID) == CGEventSourceGetSourceStateID(myEventSource)) {
