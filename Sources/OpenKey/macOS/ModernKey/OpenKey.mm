@@ -3,7 +3,7 @@
 //  OpenKey
 //
 //  Created by Tuyen on 1/18/19.
-//  Copyright © 2019 Tuyen Mai. All rights reserved.
+//  Copyright 2019 Tuyen Mai. All rights reserved.
 //
 #import <Cocoa/Cocoa.h>
 #import <Carbon/Carbon.h>
@@ -52,6 +52,8 @@ extern "C" {
     NSArray* _niceSpaceApp = @[@"com.sublimetext.3",
                                @"com.sublimetext.2",
                              ];
+    
+    NSString* const SPOTLIGHT_BUNDLE = @"com.apple.Spotlight";
     
     //app which error with unicode Compound
     NSArray* _unicodeCompoundApp = @[@"com.apple.",
@@ -575,6 +577,25 @@ extern "C" {
      * MAIN HOOK entry, very important function.
      * MAIN Callback.
      */
+    NSString* getFocusedAppBundleId() {
+        AXUIElementRef systemWide = AXUIElementCreateSystemWide();
+        AXUIElementRef focusedApp = NULL;
+        AXError result = AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute, (CFTypeRef*)&focusedApp);
+        
+        if (result == kAXErrorSuccess && focusedApp) {
+            pid_t pid = 0;
+            AXUIElementGetPid(focusedApp, &pid);
+            NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+            CFRelease(focusedApp);
+            CFRelease(systemWide);
+            return app.bundleIdentifier;
+        }
+        
+        if (focusedApp) CFRelease(focusedApp);
+        CFRelease(systemWide);
+        return nil;
+    }
+    
     CGEventRef OpenKeyCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon) {
         //dont handle my event
         if (CGEventGetIntegerValueField(event, kCGEventSourceStateID) == CGEventSourceGetSourceStateID(myEventSource)) {
@@ -645,8 +666,9 @@ extern "C" {
         
         _proxy = proxy;
         
-        //If is in english mode
-        if (vLanguage == 0) {
+        //If is in english mode or typing in Spotlight
+        NSString *focusedAppId = getFocusedAppBundleId();
+        if (vLanguage == 0 || [focusedAppId isEqualToString:SPOTLIGHT_BUNDLE]) {
             if (vUseMacro && vUseMacroInEnglishMode && type == kCGEventKeyDown) {
                 vEnglishMode((type == kCGEventKeyDown ? vKeyEventState::KeyDown : vKeyEventState::MouseDown),
                              _keycode,
@@ -732,7 +754,7 @@ extern "C" {
                 
                 //send backspace
                 if (pData->backspaceCount > 0 && pData->backspaceCount < MAX_BUFF) {
-                    for (_i = 0; _i < pData->backspaceCount; _i++) {
+                    for (int i = 0; i < pData->backspaceCount; i++) {
                         SendBackspace();
                     }
                 }
