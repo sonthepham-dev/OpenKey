@@ -89,6 +89,17 @@ extern "C" {
     
     static NSString *lastFocusedAppBundleId = nil;
     static pid_t lastFocusedAppPid = -1;
+    
+    // Global AX variables
+    static AXUIElementRef g_systemWide = NULL;
+
+    // Cleanup function for AX variables
+    static void cleanupAXVariables() {
+        if (g_systemWide) {
+            CFRelease(g_systemWide);
+            g_systemWide = NULL;
+        }
+    }
 
     void OpenKeyInit() {
         //load saved data
@@ -146,6 +157,11 @@ extern "C" {
         if (convertToolHotKey == 0) {
             convertToolHotKey = EMPTY_HOTKEY;
         }
+    }
+    
+    void OpenKeyCleanup() {
+        cleanupAXVariables();
+        // ... other cleanup code ...
     }
     
     void RequestNewSession() {
@@ -577,9 +593,12 @@ extern "C" {
     }
 
     NSString* getFocusedAppBundleId() {
-        AXUIElementRef systemWide = AXUIElementCreateSystemWide();
+        if (!g_systemWide) {
+            g_systemWide = AXUIElementCreateSystemWide();
+        }
+        
         AXUIElementRef focusedApp = NULL;
-        AXError result = AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute, (CFTypeRef*)&focusedApp);
+        AXError result = AXUIElementCopyAttributeValue(g_systemWide, kAXFocusedApplicationAttribute, (CFTypeRef*)&focusedApp);
         
         if (result == kAXErrorSuccess && focusedApp) {
             pid_t pid = 0;
@@ -587,18 +606,18 @@ extern "C" {
             
             // Check if the focused app has changed
             if (pid != lastFocusedAppPid) {
-            NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+                NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
                 lastFocusedAppBundleId = app.bundleIdentifier;
                 lastFocusedAppPid = pid;
             }
             
             CFRelease(focusedApp);
-            CFRelease(systemWide);
             return lastFocusedAppBundleId;
         }
         
-        if (focusedApp) CFRelease(focusedApp);
-        CFRelease(systemWide);
+        if (focusedApp) {
+            CFRelease(focusedApp);
+        }
         return nil;
     }
 
