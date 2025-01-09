@@ -52,8 +52,11 @@ extern "C" {
     NSArray* _niceSpaceApp = @[@"com.sublimetext.3",
                                @"com.sublimetext.2",
                              ];
-    
-    NSString* const SPOTLIGHT_BUNDLE = @"com.apple.Spotlight";
+        
+    // Array of bundle IDs for apps that should be ignored
+    static NSArray* const IGNORED_BUNDLES = @[
+        @"com.apple.Spotlight"  // Spotlight search
+    ];
     
     //app which error with unicode Compound
     NSArray* _unicodeCompoundApp = @[@"com.apple.",
@@ -89,6 +92,7 @@ extern "C" {
     
     static NSString *lastFocusedAppBundleId = nil;
     static pid_t lastFocusedAppPid = -1;
+    static bool _willUpdateFocusedApp = false;
     
     // Global AX variables
     static AXUIElementRef g_systemWide = NULL;
@@ -203,6 +207,7 @@ extern "C" {
     }
     
     void OnActiveAppChanged() { //use for smart switch key; improved on Sep 28th, 2019
+        _willUpdateFocusedApp = true;
         queryFrontMostApp();
         _languageTemp = getAppInputMethodStatus(string(_frontMostApp.UTF8String), vLanguage | (vCodeTable << 1));
         if ((_languageTemp & 0x01) != vLanguage) { //for input method
@@ -592,7 +597,7 @@ extern "C" {
                                          fallbackKeyCode);
     }
 
-    NSString* getFocusedAppBundleId() {
+    void updateFocusedAppBundleId() {
         if (!g_systemWide) {
             g_systemWide = AXUIElementCreateSystemWide();
         }
@@ -603,7 +608,6 @@ extern "C" {
         if (result == kAXErrorSuccess && focusedApp) {
             pid_t pid = 0;
             AXUIElementGetPid(focusedApp, &pid);
-            
             // Check if the focused app has changed
             if (pid != lastFocusedAppPid) {
                 NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
@@ -612,13 +616,12 @@ extern "C" {
             }
             
             CFRelease(focusedApp);
-            return lastFocusedAppBundleId;
+            return;
         }
         
         if (focusedApp) {
             CFRelease(focusedApp);
         }
-        return nil;
     }
 
     /**
@@ -695,9 +698,8 @@ extern "C" {
         
         _proxy = proxy;
         
-        //If is in english mode or typing in Spotlight
-        NSString *focusedAppId = getFocusedAppBundleId();
-        if (vLanguage == 0 || [focusedAppId isEqualToString:SPOTLIGHT_BUNDLE]) {
+        //If is in english mode
+        if (vLanguage == 0) {
             if (vUseMacro && vUseMacroInEnglishMode && type == kCGEventKeyDown) {
                 vEnglishMode((type == kCGEventKeyDown ? vKeyEventState::KeyDown : vKeyEventState::MouseDown),
                              _keycode,
@@ -714,6 +716,7 @@ extern "C" {
         
         //handle mouse
         if (type == kCGEventLeftMouseDown || type == kCGEventRightMouseDown || type == kCGEventLeftMouseDragged || type == kCGEventRightMouseDragged) {
+            _willUpdateFocusedApp = true;
             RequestNewSession();
             return event;
         }
@@ -739,6 +742,21 @@ extern "C" {
         
         //handle keyboard
         if (type == kCGEventKeyDown) {
+
+            //update focused app
+            if (_willUpdateFocusedApp) {
+                updateFocusedAppBundleId();
+                _willUpdateFocusedApp = false;
+            }
+            if (OTHER_CONTROL_KEY) {
+                _willUpdateFocusedApp = true;
+            }
+            
+            //ignore some apps
+            if (lastFocusedAppBundleId && [IGNORED_BUNDLES containsObject:lastFocusedAppBundleId]) {
+                return event;
+            }
+            
             //send event signal to Engine
             vKeyHandleEvent(vKeyEvent::Keyboard,
                             vKeyEventState::KeyDown,
@@ -758,7 +776,6 @@ extern "C" {
                             }
                             _syncKey.pop_back();
                         }
-                       
                     } else if (pData->extCode == 3) { //normal key
                         InsertKeyLength(1);
                     }
