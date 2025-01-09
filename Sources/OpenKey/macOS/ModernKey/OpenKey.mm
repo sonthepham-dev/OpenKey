@@ -741,7 +741,7 @@ extern "C" {
                     NSString *currentLanguage = (__bridge NSString *)langRef;
                     if(![currentLanguage isLike:@"en"] && ![currentLanguage isLike:@""]){ // empty for "unicode hex input"
                         return event;
-                    }a
+                    }
                     CFRelease(langRef);
                     CFRelease(isource);
                 }
