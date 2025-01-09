@@ -608,6 +608,7 @@ extern "C" {
         if (result == kAXErrorSuccess && focusedApp) {
             pid_t pid = 0;
             AXUIElementGetPid(focusedApp, &pid);
+            
             // Check if the focused app has changed
             if (pid != lastFocusedAppPid) {
                 NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
@@ -617,6 +618,13 @@ extern "C" {
             
             CFRelease(focusedApp);
             return;
+        } else {
+            // Fallback to NSWorkspace when AX API fails
+            NSRunningApplication *frontApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
+            if (frontApp && frontApp.processIdentifier != lastFocusedAppPid) {
+                lastFocusedAppBundleId = frontApp.bundleIdentifier;
+                lastFocusedAppPid = frontApp.processIdentifier;
+            }
         }
         
         if (focusedApp) {
@@ -751,7 +759,7 @@ extern "C" {
             if (OTHER_CONTROL_KEY) {
                 _willUpdateFocusedApp = true;
             }
-            
+
             //ignore some apps
             if (lastFocusedAppBundleId && [IGNORED_BUNDLES containsObject:lastFocusedAppBundleId]) {
                 return event;
