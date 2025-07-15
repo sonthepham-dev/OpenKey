@@ -353,7 +353,9 @@ void insertKey(const Uint16& keyCode, const bool& isCaps, const bool& isCheckSpe
         for (iii = 0; iii < MAX_BUFF - 1; iii++) {
             TypingWord[iii] = TypingWord[iii + 1];
         }
-        setKeyData(_index-1, keyCode, isCaps);
+        _index--; //decrement index to keep it within bounds
+        setKeyData(_index, keyCode, isCaps);
+        _index++; //increment back for next insertion
     } else {
         setKeyData(_index++, keyCode, isCaps);
     }
