@@ -93,30 +93,30 @@ static Uint32 KeyStates[MAX_BUFF];
 static Byte _stateIndex = 0;
 
 static bool tempDisableKey = false;
-static int capsElem;
-static int key;
-static int markElem;
+static int capsElem = 0;
+static int key = 0;
+static int markElem = 0;
 static bool isCorect = false;
 static bool isChanged = false;
 static Byte vowelCount = 0;
 static Byte vowelStartIndex = 0;
 static Byte vowelEndIndex = 0;
 static Byte vowelWillSetMark = 0;
-static int i, ii, iii;
-static int j;
-static int k, kk;
-static int l;
-static bool isRestoredW;
-static Uint16 keyForAEO;
-static bool isCheckedGrammar;
+static int i = 0, ii = 0, iii = 0;
+static int j = 0;
+static int k = 0, kk = 0;
+static int l = 0;
+static bool isRestoredW = false;
+static Uint16 keyForAEO = 0;
+static bool isCheckedGrammar = false;
 static bool _isCaps = false;
 static int _spaceCount = 0; //add: July 30th, 2019
 static bool _hasHandledMacro = false; //for macro flag August 9th, 2019
 static Byte _upperCaseStatus = 0; //for Write upper case for the first letter; 2: will upper case
-static bool _isCharKeyCode;
+static bool _isCharKeyCode = false;
 static vector<Uint32> _specialChar;
-static bool _useSpellCheckingBefore;
-static bool _hasHandleQuickConsonant;
+static bool _useSpellCheckingBefore = false;
+static bool _hasHandleQuickConsonant = false;
 static bool _willTempOffEngine = false;
 
 //function prototype
@@ -353,7 +353,10 @@ void insertKey(const Uint16& keyCode, const bool& isCaps, const bool& isCheckSpe
         for (iii = 0; iii < MAX_BUFF - 1; iii++) {
             TypingWord[iii] = TypingWord[iii + 1];
         }
-        setKeyData(_index-1, keyCode, isCaps);
+        // Fix: Ensure we don't write beyond array bounds
+        if (_index - 1 < MAX_BUFF) {
+            setKeyData(_index-1, keyCode, isCaps);
+        }
     } else {
         setKeyData(_index++, keyCode, isCaps);
     }
@@ -372,7 +375,10 @@ void insertState(const Uint16& keyCode, const bool& isCaps) {
         for (iii = 0; iii < MAX_BUFF - 1; iii++) {
             KeyStates[iii] = KeyStates[iii + 1];
         }
-        KeyStates[_stateIndex-1] = keyCode | (isCaps ? CAPS_MASK : 0);
+        // Fix: Ensure we don't write beyond array bounds
+        if (_stateIndex - 1 < MAX_BUFF) {
+            KeyStates[_stateIndex-1] = keyCode | (isCaps ? CAPS_MASK : 0);
+        }
     } else {
         KeyStates[_stateIndex++] = keyCode | (isCaps ? CAPS_MASK : 0);
     }
@@ -442,13 +448,16 @@ void restoreLastTypingState() {
                 _index = 0;
             } else if (std::find(_charKeyCode.begin(), _charKeyCode.end(), (Uint16)_typingStatesData[0]) != _charKeyCode.end()) {
                 _index = 0;
-                _specialChar = _typingStatesData;
+                // Fix: Make a proper copy to avoid potential issues
+                _specialChar.clear();
+                _specialChar.assign(_typingStatesData.begin(), _typingStatesData.end());
                 checkSpelling();
             } else {
                 for (i = 0; i < _typingStatesData.size(); i++) {
                     TypingWord[i] = _typingStatesData[i];
                 }
-                _index = (Byte)_typingStatesData.size();
+                // Fix: Ensure _index doesn't exceed MAX_BUFF
+                _index = (Byte)min((int)_typingStatesData.size(), MAX_BUFF);
             }
         }
     }
