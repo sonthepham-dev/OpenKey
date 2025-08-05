@@ -51,11 +51,12 @@ extern "C" {
     //app which must sent special empty character
     NSArray* _niceSpaceApp = @[@"com.sublimetext.3",
                                @"com.sublimetext.2",
+                               @"com.apple.Spotlight",  // Spotlight search
                              ];
         
     // Array of bundle IDs for apps that should be ignored
     static NSArray* const IGNORED_BUNDLES = @[
-        @"com.apple.Spotlight"  // Spotlight search
+        // Spotlight search - removed to enable Vietnamese input
     ];
     
     //app which error with unicode Compound
@@ -197,6 +198,10 @@ extern "C" {
                 return true;
         }
         return false;
+    }
+    
+    BOOL isSpotlightApp(NSString* topApp) {
+        return topApp != nil && [topApp isEqualToString:@"com.apple.Spotlight"];
     }
     
     void saveSmartSwitchKeyData() {
@@ -381,6 +386,13 @@ extern "C" {
                 }
             }
             _syncKey.pop_back();
+        }
+        
+        // Special handling for Spotlight: ensure backspace removes character, not just completion
+        if (isSpotlightApp(FRONT_APP)) {
+            // Send an additional backspace to ensure character removal
+            CGEventTapPostEvent(_proxy, eventBackSpaceDown);
+            CGEventTapPostEvent(_proxy, eventBackSpaceUp);
         }
     }
     
@@ -784,6 +796,13 @@ extern "C" {
                             }
                             _syncKey.pop_back();
                         }
+                        
+                        // Special handling for Spotlight: ensure backspace removes character, not just completion
+                        if (isSpotlightApp(FRONT_APP)) {
+                            // Send an additional backspace to ensure character removal
+                            CGEventTapPostEvent(_proxy, eventBackSpaceDown);
+                            CGEventTapPostEvent(_proxy, eventBackSpaceUp);
+                        }
                     } else if (pData->extCode == 3) { //normal key
                         InsertKeyLength(1);
                     }
@@ -799,6 +818,10 @@ extern "C" {
                             if (pData->backspaceCount == 1)
                                 pData->backspaceCount--;
                         }
+                    } else if (isSpotlightApp(FRONT_APP)) {
+                        // Special handling for Spotlight: send empty character to clear autocomplete
+                        SendEmptyCharacter();
+                        pData->backspaceCount++;
                     } else {
                         SendEmptyCharacter();
                         pData->backspaceCount++;
