@@ -130,6 +130,8 @@ struct vKeyHookState {
 #define IS_CONSONANT(keyCode) !(keyCode == KEY_A || keyCode == KEY_E || keyCode == KEY_U || keyCode == KEY_Y || keyCode == KEY_I || keyCode == KEY_O)
 //#define IS_MARK_KEY(keyCode) (keyCode == KEY_S || keyCode == KEY_F || keyCode == KEY_R || keyCode == KEY_J || keyCode == KEY_X)
 #define CHR(index) (Uint16)TypingWord[index]
+// Safer version with bounds checking
+#define CHR_SAFE(index) ((index >= 0 && index < MAX_BUFF) ? (Uint16)TypingWord[index] : 0)
 #define IS_SPECIALKEY(keyCode) \
         (vInputType == vTelex ? \
             keyCode == KEY_W || keyCode == KEY_E || keyCode == KEY_R || keyCode == KEY_O || keyCode == KEY_LEFT_BRACKET || \
