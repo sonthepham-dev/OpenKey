@@ -3,7 +3,7 @@
 //  OpenKey
 //
 //  Created by Tuyen on 1/18/19.
-//  Copyright © 2019 Tuyen Mai. All rights reserved.
+//  Copyright 2019 Tuyen Mai. All rights reserved.
 //
 #import <Cocoa/Cocoa.h>
 #import <Carbon/Carbon.h>
@@ -51,7 +51,13 @@ extern "C" {
     //app which must sent special empty character
     NSArray* _niceSpaceApp = @[@"com.sublimetext.3",
                                @"com.sublimetext.2",
+                               @"com.apple.Spotlight",  // Spotlight search
                              ];
+        
+    // Array of bundle IDs for apps that should be ignored
+    static NSArray* const IGNORED_BUNDLES = @[
+        // Spotlight search - removed to enable Vietnamese input
+    ];
     
     //app which error with unicode Compound
     NSArray* _unicodeCompoundApp = @[@"com.apple.",
@@ -85,6 +91,21 @@ extern "C" {
     
     NSString* _frontMostApp = @"UnknownApp";
     
+    static NSString *lastFocusedAppBundleId = nil;
+    static pid_t lastFocusedAppPid = -1;
+    static bool _willUpdateFocusedApp = false;
+    
+    // Global AX variables
+    static AXUIElementRef g_systemWide = NULL;
+
+    // Cleanup function for AX variables
+    static void cleanupAXVariables() {
+        if (g_systemWide) {
+            CFRelease(g_systemWide);
+            g_systemWide = NULL;
+        }
+    }
+
     void OpenKeyInit() {
         //load saved data
         vFreeMark = 0;//(int)[[NSUserDefaults standardUserDefaults] integerForKey:@"FreeMark"];
@@ -143,6 +164,11 @@ extern "C" {
         }
     }
     
+    void OpenKeyCleanup() {
+        cleanupAXVariables();
+        // ... other cleanup code ...
+    }
+    
     void RequestNewSession() {
         //send event signal to Engine
         vKeyHandleEvent(vKeyEvent::Mouse, vKeyEventState::MouseDown, 0);
@@ -174,6 +200,10 @@ extern "C" {
         return false;
     }
     
+    BOOL isSpotlightApp(NSString* topApp) {
+        return topApp != nil && [topApp isEqualToString:@"com.apple.Spotlight"];
+    }
+    
     void saveSmartSwitchKeyData() {
         getSmartSwitchKeySaveData(savedSmartSwitchKeyData);
         NSData* _data = [NSData dataWithBytes:savedSmartSwitchKeyData.data() length:savedSmartSwitchKeyData.size()];
@@ -182,6 +212,7 @@ extern "C" {
     }
     
     void OnActiveAppChanged() { //use for smart switch key; improved on Sep 28th, 2019
+        _willUpdateFocusedApp = true;
         queryFrontMostApp();
         _languageTemp = getAppInputMethodStatus(string(_frontMostApp.UTF8String), vLanguage | (vCodeTable << 1));
         if ((_languageTemp & 0x01) != vLanguage) { //for input method
@@ -355,6 +386,13 @@ extern "C" {
                 }
             }
             _syncKey.pop_back();
+        }
+        
+        // Special handling for Spotlight: ensure backspace removes character, not just completion
+        if (isSpotlightApp(FRONT_APP)) {
+            // Send an additional backspace to ensure character removal
+            CGEventTapPostEvent(_proxy, eventBackSpaceDown);
+            CGEventTapPostEvent(_proxy, eventBackSpaceUp);
         }
     }
     
@@ -571,10 +609,45 @@ extern "C" {
                                          fallbackKeyCode);
     }
 
+    void updateFocusedAppBundleId() {
+        if (!g_systemWide) {
+            g_systemWide = AXUIElementCreateSystemWide();
+        }
+        
+        AXUIElementRef focusedApp = NULL;
+        AXError result = AXUIElementCopyAttributeValue(g_systemWide, kAXFocusedApplicationAttribute, (CFTypeRef*)&focusedApp);
+        
+        if (result == kAXErrorSuccess && focusedApp) {
+            pid_t pid = 0;
+            AXUIElementGetPid(focusedApp, &pid);
+            
+            // Check if the focused app has changed
+            if (pid != lastFocusedAppPid) {
+                NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+                lastFocusedAppBundleId = app.bundleIdentifier;
+                lastFocusedAppPid = pid;
+            }
+            
+            CFRelease(focusedApp);
+            return;
+        } else {
+            // Fallback to NSWorkspace when AX API fails
+            NSRunningApplication *frontApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
+            if (frontApp && frontApp.processIdentifier != lastFocusedAppPid) {
+                lastFocusedAppBundleId = frontApp.bundleIdentifier;
+                lastFocusedAppPid = frontApp.processIdentifier;
+            }
+        }
+        
+        if (focusedApp) {
+            CFRelease(focusedApp);
+        }
+    }
+
     /**
      * MAIN HOOK entry, very important function.
      * MAIN Callback.
-     */
+     */    
     CGEventRef OpenKeyCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon) {
         //dont handle my event
         if (CGEventGetIntegerValueField(event, kCGEventSourceStateID) == CGEventSourceGetSourceStateID(myEventSource)) {
@@ -663,6 +736,7 @@ extern "C" {
         
         //handle mouse
         if (type == kCGEventLeftMouseDown || type == kCGEventRightMouseDown || type == kCGEventLeftMouseDragged || type == kCGEventRightMouseDragged) {
+            _willUpdateFocusedApp = true;
             RequestNewSession();
             return event;
         }
@@ -677,7 +751,7 @@ extern "C" {
                 if (CFArrayGetCount(languages) > 0) {
                     CFStringRef langRef = (CFStringRef)CFArrayGetValueAtIndex(languages, 0);
                     NSString *currentLanguage = (__bridge NSString *)langRef;
-                    if(![currentLanguage isLike:@"en"]){
+                    if(![currentLanguage isLike:@"en"] && ![currentLanguage isLike:@""]){ // empty for "unicode hex input"
                         return event;
                     }
                     CFRelease(langRef);
@@ -688,6 +762,21 @@ extern "C" {
         
         //handle keyboard
         if (type == kCGEventKeyDown) {
+
+            //update focused app
+            if (_willUpdateFocusedApp) {
+                updateFocusedAppBundleId();
+                _willUpdateFocusedApp = false;
+            }
+            if (OTHER_CONTROL_KEY) {
+                _willUpdateFocusedApp = true;
+            }
+
+            //ignore some apps
+            if (lastFocusedAppBundleId && [IGNORED_BUNDLES containsObject:lastFocusedAppBundleId]) {
+                return event;
+            }
+            
             //send event signal to Engine
             vKeyHandleEvent(vKeyEvent::Keyboard,
                             vKeyEventState::KeyDown,
@@ -707,7 +796,13 @@ extern "C" {
                             }
                             _syncKey.pop_back();
                         }
-                       
+                        
+                        // Special handling for Spotlight: ensure backspace removes character, not just completion
+                        if (isSpotlightApp(FRONT_APP)) {
+                            // Send an additional backspace to ensure character removal
+                            CGEventTapPostEvent(_proxy, eventBackSpaceDown);
+                            CGEventTapPostEvent(_proxy, eventBackSpaceUp);
+                        }
                     } else if (pData->extCode == 3) { //normal key
                         InsertKeyLength(1);
                     }
@@ -723,6 +818,10 @@ extern "C" {
                             if (pData->backspaceCount == 1)
                                 pData->backspaceCount--;
                         }
+                    } else if (isSpotlightApp(FRONT_APP)) {
+                        // Special handling for Spotlight: send empty character to clear autocomplete
+                        SendEmptyCharacter();
+                        pData->backspaceCount++;
                     } else {
                         SendEmptyCharacter();
                         pData->backspaceCount++;
@@ -732,7 +831,7 @@ extern "C" {
                 
                 //send backspace
                 if (pData->backspaceCount > 0 && pData->backspaceCount < MAX_BUFF) {
-                    for (_i = 0; _i < pData->backspaceCount; _i++) {
+                    for (int i = 0; i < pData->backspaceCount; i++) {
                         SendBackspace();
                     }
                 }
